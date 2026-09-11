@@ -1,0 +1,51 @@
+swagger: "2.0"
+info:
+  version: "1.0"
+  title: "Personal Expense Tracker API with Chatbot Analyst"
+paths:
+  # Client Routes
+  ## About Page
+  /about:
+    get:
+      tags:
+        - Client
+      description: Returns an about page.
+      responses:
+        200:
+          description: Returns the page.
+          schema:
+            type: string
+        400:
+          description: Invalid 
+  ## User Registration Page
+  /register:
+    get:
+      tags:
+        - Client
+      description: User registration page.
+      responses:
+        200:
+          description: Returns a user registration page.
+        400:
+          description: Invalid
+
+  # ------------------------------------------------------------------------
+
+  # API Routes
+  ## User Registration API
+  /api/register/{user}:
+    post:
+      tags:
+        - Server
+      description: Registers user
+      parameters:
+        - name: user
+          in: path
+          type: string
+          required: true
+          description: Name of user to register.
+      responses:  
+        200:
+          description: User registered successfully.
+        400:
+          description: Invalid characters in "user" were provided
