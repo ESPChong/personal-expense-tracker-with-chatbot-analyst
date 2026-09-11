@@ -11,29 +11,70 @@ generator client {
 
 datasource db {
   provider = "mongodb"
-  url      = env("DATABASE_URL")
+  url      = env("TEST_DATABASE_URL")
 }
 
 model User {
-  id          String    @id @default(auto()) @map("_id") @db.ObjectId
-  name        String
-  email       String    @unique
-  password    String
-  income      Float     @default(0.00)
-  balance     Float     @default(0.00)
-  expenses    Expense[]
-}
-
-model Expense {
-  id          String    @id @default(auto()) @map("_id") @db.ObjectId
-  createdAt   DateTime
-  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  userId      String    @db.ObjectId
-  category    Category  @relation(fields: [categoryId], references: [id])
-  categoryId  String    @db.ObjectId
+  id                String      @id @default(auto()) @map("_id") @db.ObjectId
+  name              String
+  email             String      @unique
+  password          String
+  categories        Category[]
+  expenses          Expense[]
+  incomes           Income[]
+  incomeEntries     IncomeEntry[]
 }
 
 model Category {
-  id          String    @id @default(auto())  @map("_id") @db.ObjectId
-  expenses    Expense[]
+  id                String      @id @default(auto()) @map("_id") @db.ObjectId
+  name              String
+  user              User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId            String      @db.ObjectId
+  expenses          Expense[]
+
+  @@unique([userId, name])
+  @@index([userId])
+}
+
+model Expense {
+  id                String      @id @default(auto()) @map("_id") @db.ObjectId
+  date              DateTime
+  name              String
+  amount            Int
+  user              User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId            String      @db.ObjectId
+  category          Category?   @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  categoryId        String?     @db.ObjectId
+
+  @@index([userId, date])
+  @@index([categoryId])
+}
+
+model Income {
+  id                String      @id @default(auto()) @map("_id") @db.ObjectId
+  name              String?
+  amount            Int
+  dayOfMonth        Int
+  createdAt         DateTime    @default(now())
+  active            Boolean     @default(true)
+  lastPostedPeriod  String?     // YYYY-MM
+  user              User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId            String      @db.ObjectId
+  entries           IncomeEntry[]
+
+  @@index([userId, active])
+}
+
+model IncomeEntry {
+  id                String      @id @default(auto()) @map("_id") @db.ObjectId
+  amount            Int
+  date              DateTime
+  period            String      // YYYY-MM
+  income            Income      @relation(fields: [incomeId], references: [id], onDelete: Cascade)
+  incomeId          String      @db.ObjectId
+  user              User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId            String      @db.ObjectId
+
+  @@unique([incomeId, period])
+  @@index([userId, date])
 }

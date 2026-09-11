@@ -1,7 +1,7 @@
-swagger: "2.0"
+swagger: '2.0'
 info:
-  version: "1.0"
-  title: "Personal Expense Tracker API with Chatbot Analyst"
+  version: '1.0'
+  title: 'Personal Expense Tracker API with Chatbot Analyst'
 paths:
   # Client Routes
   ## About Page
@@ -16,7 +16,7 @@ paths:
           schema:
             type: string
         400:
-          description: Invalid 
+          description: Invalid
   ## User Registration Page
   /register:
     get:
@@ -28,6 +28,26 @@ paths:
           description: Returns a user registration page.
         400:
           description: Invalid
+  ## User Login Page
+  /login:
+    get:
+      tags:
+        - Client
+      description: User login page.
+      responses:
+        200:
+          description: Returns a user registration page.
+        400:
+          description: Invalid
+  ## User Expenses Dashboard
+  /expenses:
+    get:
+      tags:
+        - Client
+      description: User Expenses Dashboard.
+      responses:
+        200:
+          description: Returns an expenses dashboard for the logged in user.
 
   # ------------------------------------------------------------------------
 
@@ -44,7 +64,7 @@ paths:
           type: string
           required: true
           description: Name of user to register.
-      responses:  
+      responses:
         200:
           description: User registered successfully.
         400:
