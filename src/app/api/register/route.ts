@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
-import { prisma } from '../../../lib/prisma';
-import { registerSchema } from '../../../lib/validations';
+import { prisma } from '@/lib/prisma';
+import { registerSchema } from '@/lib/validations';
 import bcrypt from 'bcryptjs';
 import { cookies } from 'next/headers';
 import { randomUUID } from 'crypto';
