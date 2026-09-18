@@ -8,3 +8,4 @@
 - MongoDB: Non Relational Database
 - Langchain: AI Model Deployment
 - ESLint, Prettier: Syntax and Formatting
+- Session Cookies Based Authentication

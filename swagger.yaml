@@ -53,19 +53,46 @@ paths:
 
   # API Routes
   ## User Registration API
-  /api/register/{user}:
+  /api/register:
     post:
       tags:
         - Server
       description: Registers user
-      parameters:
-        - name: user
-          in: path
-          type: string
-          required: true
-          description: Name of user to register.
       responses:
         200:
           description: User registered successfully.
         400:
-          description: Invalid characters in "user" were provided
+          description: Invalid characters in "user" were provided.
+
+  /api/login:
+    post:
+      tags:
+        - Server
+      description: Logs in user
+      responses:
+        200:
+          description: Successful log in.
+        400:
+          description: Invalid credentials.
+
+  /api/me:
+    post:
+      tags:
+        - Server
+      description: Get current user.
+      responses:
+        200:
+          description: Succesful get.
+        400:
+          description: Get failed.
+
+  /api/logout:
+    post:
+      tags:
+        - Server
+      description: Log out user.
+      responses:
+        200:
+          description: Log out succesful.
+        400:
+          description: Log out failed.

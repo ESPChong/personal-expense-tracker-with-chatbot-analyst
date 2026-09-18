@@ -14,6 +14,16 @@ datasource db {
   url      = env("TEST_DATABASE_URL")
 }
 
+model Session {
+  id                String      @id @default(auto()) @map("_id") @db.ObjectId
+  userId            String      @db.ObjectId
+  user              User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expires           DateTime
+  createdAt         DateTime    @default(now())
+
+  @@index([userId])
+  @@index([expires])
+}
 model User {
   id                String      @id @default(auto()) @map("_id") @db.ObjectId
   name              String
@@ -23,6 +33,7 @@ model User {
   expenses          Expense[]
   incomes           Income[]
   incomeEntries     IncomeEntry[]
+  sessions          Session[]
 }
 
 model Category {
