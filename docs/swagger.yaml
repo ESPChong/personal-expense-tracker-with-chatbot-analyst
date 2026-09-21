@@ -1,0 +1,389 @@
+openapi: 3.0.3
+info:
+  title: 'Personal Expense Tracker API with Chatbot Analyst'
+  description: |
+    A RESTful API for tracking personal expenses with integrated chatbot analysis
+
+    ## Authentication
+    The API uses session-based authentication with HTTP-only cookies.
+    - Register or login to receive a session cookie
+    - Include the cookie in subsequent requests
+    - Use the `/api/me` endpoint to verify authentication status
+  version: 1.0.0
+  contact:
+    name: Corrin
+    url: https://github.com/ESPChong/personal-expense-tracker-with-chatbot-analyst
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: http://localhost:3000
+    description: Development Server
+  - url: https://api.mydomain.com
+    description: Production Server
+
+tags:
+  - name: Authentication
+    description: User registration, login and session management
+  - name: User
+    description: User profile and account management
+  - name: Client
+    description: Frontend page Routes
+
+paths:
+  # Client Routes
+  /about:
+    get:
+      tags: [Client]
+      summary: Get about page
+      description: Returns the about page HTML content.
+      responses:
+        '200':
+          description: About page rendered successfully.
+          content:
+            text/html:
+              schema:
+                type: string
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /register:
+    get:
+      tags: [Client]
+      summary: Get registration page
+      description: Returns the user registration page.
+      responses:
+        '200':
+          description: Returns the user registration page.
+          content:
+            text/html:
+              schema:
+                type: string
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /login:
+    get:
+      tags: [Client]
+      summary: Get login page
+      description: Returns the user login page.
+      responses:
+        '200':
+          description: Login page rendered successfully.
+          content:
+            text/html:
+              schema:
+                type: string
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /expenses:
+    get:
+      tags: [Client]
+      summary: Get expenses dashboard
+      description: Returns the expenses dashboard for authenticated users.
+      security:
+        - sessionAuth: []
+      responses:
+        '200':
+          description: Expenses dashboard rendered successfully
+          content:
+            text/html:
+              schema:
+                type: string
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  # ------------------------------------------------------------------------
+
+  # Authentication Routes
+  /api/register:
+    post:
+      tags: [Authentication]
+      summary: Register a new user
+      description: Creates a new user account and establishes a session.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+            examples:
+              example1:
+                value:
+                  name: John Doe
+                  email: john@example.com
+                  password: password123
+      responses:
+        '201':
+          description: User registered successfully
+          headers:
+            Set-Cookie:
+              description: Session cookie for authentication
+              schema:
+                type: string
+                example: session_token=abc123; HttpOnly; Path=/
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '400':
+          $ref: '#/components/schemas/ValidationError'
+        '409':
+          description: User with this email already exists
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/login:
+    post:
+      tags: [Authentication]
+      summary: Login user
+      description: Authenticates a user and establishes a session.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+            examples:
+              example1:
+                value:
+                  email: john@example.com
+                  password: password123
+      responses:
+        '200':
+          description: Log in successfully
+          headers:
+            Set-Cookie:
+              description: Session cookie for authentication
+              schema:
+                type: string
+                example: session_token=abc123; HttpOnly; Path=/
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '400':
+          $ref: '#/components/responses/ErrorResponse'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/logout:
+    post:
+      tags: [Authentication]
+      summary: Logout user
+      description: Terminates the current user session and clears the session cookie.
+      security:
+        - sessionAuth: []
+      responses:
+        '200':
+          description: Logout successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/me:
+    get:
+      tags: [User]
+      summary: Get current user
+      description: Returns the currently authenticated user's profile information.
+      security:
+        - sessionAuth: []
+      responses:
+        '200':
+          description: User information retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+components:
+  securitySchemes:
+    sessionAuth:
+      type: apiKey
+      in: cookie
+      name: session_token
+      description: Session cookie obtained from login or registration
+
+  schemas:
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Unique user identifier
+          example: 507f1f77bcf86cd799439011
+        name:
+          type: string
+          description: User's full name
+          example: John Doe
+        email:
+          type: string
+          format: email
+          description: User's email address
+          example: john@example.com
+      required:
+        - id
+        - name
+        - email
+
+    RegisterRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 2
+          maxLength: 50
+          description: User's full name
+          example: John Doe
+        email:
+          type: string
+          format: email
+          description: User's email address (must be unique)
+          example: john@example.com
+        password:
+          type: string
+          minLength: 6
+          description: User's password (will be hashed)
+          example: password123
+      required:
+        - name
+        - email
+        - password
+
+    LoginRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+          description: User's email address
+          example: john@example.com
+        password:
+          type: string
+          description: User's password
+          example: password123
+      required:
+        - email
+        - password
+
+    AuthResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        user:
+          $ref: '#/components/schemas/User'
+        message:
+          type: string
+          example: User registered successfully
+
+    UserResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        user:
+          $ref: '#/components/schemas/User'
+
+    SuccessResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+          example: Operation completed successfully
+
+    ErrorResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          type: string
+          example: Error message
+        details:
+          type: array
+          items:
+            type: object
+            properties:
+              field:
+                type: string
+              message:
+                type: string
+
+    ValidationError:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          type: string
+          example: Validation failed
+        details:
+          type: array
+          items:
+            type: object
+            properties:
+              field:
+                type: string
+                example: email
+              message:
+                type: string
+                example: Invalid email format
+
+  responses:
+    Unauthorized:
+      description: Authentication required or invalid session
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            success: false
+            error: Not authenticated
+
+    ValidationError:
+      description: Invalid request data
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            success: false
+            error: Validation failed
+            details:
+              - field: email
+                message: Invalid email format
+
+    InternalServerError:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            success: false
+            error: Internal server error
