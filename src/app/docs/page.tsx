@@ -4,7 +4,7 @@ import YAML from 'yaml';
 import SwaggerDoc from './swagger-ui';
 
 export default async function ApiDocsPage() {
-  const filePath = path.join(process.cwd(), '.', 'swagger.yaml');
+  const filePath = path.join(process.cwd(), 'docs', 'swagger.yaml');
   const fileContents = fs.readFileSync(filePath, 'utf8');
   const spec = YAML.parse(fileContents);
 
