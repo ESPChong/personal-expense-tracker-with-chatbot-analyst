@@ -100,7 +100,7 @@ paths:
   # ------------------------------------------------------------------------
 
   # Authentication Routes
-  /api/register:
+  /api/auth/register:
     post:
       tags: [Authentication]
       summary: Register a new user
@@ -141,7 +141,7 @@ paths:
         '500':
           $ref: '#/components/responses/InternalServerError'
 
-  /api/login:
+  /api/auth/login:
     post:
       tags: [Authentication]
       summary: Login user
@@ -175,7 +175,7 @@ paths:
         '500':
           $ref: '#/components/responses/InternalServerError'
 
-  /api/logout:
+  /api/auth/logout:
     post:
       tags: [Authentication]
       summary: Logout user
