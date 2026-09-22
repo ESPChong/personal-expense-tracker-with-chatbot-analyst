@@ -5,6 +5,19 @@ import bcrypt from 'bcryptjs';
 import { cookies } from 'next/headers';
 import { randomUUID } from 'crypto';
 
+// Default categories applied to new accounts
+const DEFAULT_CATEGORIES = [
+  'groceries',
+  'utilities',
+  'rent',
+  'education',
+  'daily essentials',
+  'food',
+  'travel',
+  'entertainment',
+  'healthcare',
+];
+
 export async function POST(request: Request) {
   try {
     const body = await request.json();
@@ -41,17 +54,34 @@ export async function POST(request: Request) {
     const saltRounds = 12;
     const hashedPassword = await bcrypt.hash(password, saltRounds);
 
-    const user = await prisma.user.create({
-      data: {
-        name,
-        email,
-        password: hashedPassword,
-      },
-      select: {
-        id: true,
-        name: true,
-        email: true,
-      },
+    // Transaction: Create user and default categories simultaneously
+    const user = await prisma.$transaction(async (tx) => {
+      // Create the user
+      const newUser = await tx.user.create({
+        data: {
+          name,
+          email,
+          password: hashedPassword,
+        },
+        select: {
+          id: true,
+          name: true,
+          email: true,
+        },
+      });
+
+      // Prepare default category records
+      const categoryData = DEFAULT_CATEGORIES.map((catName) => ({
+        name: catName,
+        userId: newUser.id,
+      }));
+
+      // Insert default categories
+      await tx.category.createMany({
+        data: categoryData,
+      });
+
+      return newUser;
     });
 
     // Create session
@@ -60,6 +90,14 @@ export async function POST(request: Request) {
     expiresAt.setDate(expiresAt.getDate() + 7);
 
     // Store session in db
+    await prisma.session.create({
+      data: {
+        sessionToken,
+        userId: user.id,
+        expiresAt,
+      },
+    });
+
     const cookieStore = await cookies();
     cookieStore.set('session_token', sessionToken, {
       httpOnly: true,
