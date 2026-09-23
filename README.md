@@ -1,4 +1,6 @@
-# Personal Expense Tracker API with Chatbot Assistant
+# WalletBuddy - Production-Ready Personal Expense Tracker API with Chatbot Assistant
+
+This is WalletBuddy, a production-ready personal expense tracker API with an integrated chatbot assistant for expense enquiry and management.
 
 ## Tech Stack
 
