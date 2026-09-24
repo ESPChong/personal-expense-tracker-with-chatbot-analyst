@@ -73,3 +73,26 @@ export const incomeCreateSchema = z.object({
 export const incomeUpdateSchema = incomeCreateSchema.partial().extend({
   active: z.boolean().optional(),
 });
+
+// ---------- chatbot ----------
+
+export const chatbotRequestSchema = z.object({
+  message: z
+    .string()
+    .trim()
+    .min(1, 'Message is required')
+    .max(2000, 'Message must be at most 2000 characters'),
+  month: z
+    .string()
+    .regex(/^\d{4}-(0[1-9]|1[0-2])$/, 'Invalid month, expected YYYY-MM')
+    .optional(),
+  history: z
+    .array(
+      z.object({
+        role: z.enum(['user', 'assistant']),
+        content: z.string().min(1).max(2000),
+      }),
+    )
+    .max(10, 'History is limited to 10 turns')
+    .default([]),
+});

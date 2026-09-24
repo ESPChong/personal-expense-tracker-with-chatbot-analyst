@@ -2,14 +2,27 @@ openapi: 3.0.3
 info:
   title: 'Personal Expense Tracker API with Chatbot Analyst'
   description: |
-    A RESTful API for tracking personal expenses with integrated chatbot analysis
+    A RESTful API for tracking personal expenses with integrated chatbot analysis.
 
     ## Authentication
     The API uses session-based authentication with HTTP-only cookies.
-    - Register or login to receive a session cookie
+    - Register or login to receive a `session_token` cookie (7-day expiry)
+    - Session tokens are stored server-side as SHA-256 hashes and are revocable
     - Include the cookie in subsequent requests
     - Use the `/api/me` endpoint to verify authentication status
-  version: 1.0.0
+
+    ## Conventions
+    - **Money:** all amounts are integers in **cents** (e.g. `4999` = $49.99)
+    - **IDs:** MongoDB ObjectIds — 24-character hexadecimal strings
+    - **Ownership:** on single-resource endpoints, `404` means "not found *or*
+      not owned by the requesting user" — the API never reveals whether a
+      resource exists for someone else
+    - **Dates:** accepted as `YYYY-MM-DD` or full ISO 8601 datetime strings;
+      always returned as ISO 8601 datetimes
+    - **Recurring income:** `Income` objects are templates. Their `IncomeEntry`
+      postings are generated automatically by the server (see `/api/dashboard`)
+      and are never created or edited directly through this API
+  version: 1.1.0
   contact:
     name: Corrin
     url: https://github.com/ESPChong/personal-expense-tracker-with-chatbot-analyst
@@ -28,8 +41,16 @@ tags:
     description: User registration, login and session management
   - name: User
     description: User profile and account management
+  - name: Expenses
+    description: CRUD operations on expense records
+  - name: Incomes
+    description: CRUD operations on recurring income templates
+  - name: Categories
+    description: Expense category management
+  - name: Dashboard
+    description: Aggregated monthly analytics
   - name: Client
-    description: Frontend page Routes
+    description: Frontend page routes
 
 paths:
   # Client Routes
@@ -104,7 +125,13 @@ paths:
     post:
       tags: [Authentication]
       summary: Register a new user
-      description: Creates a new user account and establishes a session.
+      description: |
+        Creates a new user account, seeds it with 9 default categories, and
+        establishes a session.
+
+        - Emails are normalized to lowercase before storage
+        - Passwords are hashed with bcrypt (12 rounds)
+        - The session token is stored server-side as a SHA-256 hash
       requestBody:
         required: true
         content:
@@ -122,22 +149,25 @@ paths:
           description: User registered successfully
           headers:
             Set-Cookie:
-              description: Session cookie for authentication
+              description: HTTP-only session cookie
               schema:
                 type: string
-                example: session_token=abc123; HttpOnly; Path=/
+                example: session_token=Kx8fJ2v...; Path=/; HttpOnly; SameSite=Lax
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/AuthResponse'
         '400':
-          $ref: '#/components/schemas/ValidationError'
+          $ref: '#/components/responses/BadRequest'
         '409':
           description: User with this email already exists
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+              example:
+                success: false
+                error: User with this email already exists
         '500':
           $ref: '#/components/responses/InternalServerError'
 
@@ -145,7 +175,12 @@ paths:
     post:
       tags: [Authentication]
       summary: Login user
-      description: Authenticates a user and establishes a session.
+      description: |
+        Authenticates a user and establishes a session.
+
+        - Email matching is case-insensitive
+        - Returns the same generic error for unknown emails and wrong
+          passwords (no user enumeration)
       requestBody:
         required: true
         content:
@@ -159,19 +194,28 @@ paths:
                   password: password123
       responses:
         '200':
-          description: Log in successfully
+          description: Logged in successfully
           headers:
             Set-Cookie:
-              description: Session cookie for authentication
+              description: HTTP-only session cookie
               schema:
                 type: string
-                example: session_token=abc123; HttpOnly; Path=/
+                example: session_token=Kx8fJ2v...; Path=/; HttpOnly; SameSite=Lax
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/AuthResponse'
         '400':
-          $ref: '#/components/responses/ErrorResponse'
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                success: false
+                error: Invalid credentials
         '500':
           $ref: '#/components/responses/InternalServerError'
 
@@ -179,9 +223,9 @@ paths:
     post:
       tags: [Authentication]
       summary: Logout user
-      description: Terminates the current user session and clears the session cookie.
-      security:
-        - sessionAuth: []
+      description: |
+        Terminates the current session (if one exists) and clears the session
+        cookie. Idempotent — returns 200 even when no session is present.
       responses:
         '200':
           description: Logout successful
@@ -189,8 +233,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/SuccessResponse'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
         '500':
           $ref: '#/components/responses/InternalServerError'
 
@@ -213,13 +255,435 @@ paths:
         '500':
           $ref: '#/components/responses/InternalServerError'
 
+  # ------------------------------------------------------------------------
+
+  # Category Routes
+  /api/categories:
+    get:
+      tags: [Categories]
+      summary: List categories
+      description: Returns all expense categories belonging to the authenticated user, ordered by name.
+      security:
+        - sessionAuth: []
+      responses:
+        '200':
+          description: Categories retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CategoryListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+    post:
+      tags: [Categories]
+      summary: Create a category
+      description: Creates a new expense category for the authenticated user. Category names are unique per user.
+      security:
+        - sessionAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CategoryCreateRequest'
+            example:
+              name: hobbies
+      responses:
+        '201':
+          description: Category created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Category'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          description: Category name already exists for this user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: Category name already exists
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  # ------------------------------------------------------------------------
+
+  # Expense Routes
+  /api/expenses:
+    get:
+      tags: [Expenses]
+      summary: List expenses
+      description: |
+        Returns a paginated list of the authenticated user's expenses, ordered
+        by date (descending). Optionally filter by month and category.
+      security:
+        - sessionAuth: []
+      parameters:
+        - name: month
+          in: query
+          required: false
+          description: Filter to a single month (YYYY-MM)
+          schema:
+            type: string
+            pattern: '^\d{4}-(0[1-9]|1[0-2])$'
+            example: '2025-06'
+        - name: categoryId
+          in: query
+          required: false
+          description: Filter to one of the user's categories
+          schema:
+            type: string
+            pattern: '^[0-9a-fA-F]{24}$'
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: pageSize
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        '200':
+          description: Expenses retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExpenseListResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+    post:
+      tags: [Expenses]
+      summary: Create an expense
+      description: |
+        Creates an expense record for the authenticated user.
+
+        If `categoryId` is provided it must reference one of *this user's*
+        categories — otherwise the request is rejected with 400 (this
+        prevents linking another user's category).
+      security:
+        - sessionAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExpenseCreateRequest'
+            example:
+              name: Weekly groceries
+              amount: 4999
+              date: '2025-06-10'
+              categoryId: 507f1f77bcf86cd799439013
+      responses:
+        '201':
+          description: Expense created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Expense'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/expenses/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: Expense ObjectId
+        schema:
+          type: string
+          pattern: '^[0-9a-fA-F]{24}$'
+
+    get:
+      tags: [Expenses]
+      summary: Get an expense
+      description: Returns a single expense with its category. A 404 is returned if the expense does not exist or belongs to another user.
+      security:
+        - sessionAuth: []
+      responses:
+        '200':
+          description: Expense retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Expense'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+    patch:
+      tags: [Expenses]
+      summary: Update an expense
+      description: |
+        Partially updates an expense. Only the provided fields are changed.
+
+        Set `categoryId` to `null` to explicitly remove the expense's category.
+        A provided `categoryId` (non-null) must belong to the requesting user.
+      security:
+        - sessionAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExpenseUpdateRequest'
+            example:
+              amount: 6250
+              categoryId: null
+      responses:
+        '200':
+          description: Expense updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Expense'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+    delete:
+      tags: [Expenses]
+      summary: Delete an expense
+      description: Permanently deletes an expense owned by the authenticated user.
+      security:
+        - sessionAuth: []
+      responses:
+        '204':
+          description: Expense deleted successfully (no content)
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  # ------------------------------------------------------------------------
+
+  # Income Routes
+  /api/incomes:
+    get:
+      tags: [Incomes]
+      summary: List recurring income templates
+      description: Returns the authenticated user's recurring income templates, active ones first.
+      security:
+        - sessionAuth: []
+      responses:
+        '200':
+          description: Incomes retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IncomeListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+    post:
+      tags: [Incomes]
+      summary: Create a recurring income template
+      description: |
+        Creates a recurring income template. The server automatically posts an
+        `IncomeEntry` each period once the income's `dayOfMonth` has passed
+        (see `/api/dashboard`).
+
+        `dayOfMonth` values above a month's length are capped to that month's
+        last day (e.g. `31` posts on Feb 28).
+      security:
+        - sessionAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IncomeCreateRequest'
+            example:
+              name: Salary
+              amount: 500000
+              dayOfMonth: 1
+      responses:
+        '201':
+          description: Income template created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Income'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/incomes/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: Income template ObjectId
+        schema:
+          type: string
+          pattern: '^[0-9a-fA-F]{24}$'
+
+    get:
+      tags: [Incomes]
+      summary: Get a recurring income template
+      description: Returns a single income template. A 404 is returned if it does not exist or belongs to another user.
+      security:
+        - sessionAuth: []
+      responses:
+        '200':
+          description: Income retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Income'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+    patch:
+      tags: [Incomes]
+      summary: Update a recurring income template
+      description: |
+        Partially updates an income template. Changes only affect **future**
+        postings — historical `IncomeEntry` records are never rewritten.
+
+        To stop a recurring income while preserving its history, set
+        `active: false` (soft delete) rather than using DELETE.
+      security:
+        - sessionAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IncomeUpdateRequest'
+            example:
+              amount: 550000
+              active: false
+      responses:
+        '200':
+          description: Income updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Income'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+    delete:
+      tags: [Incomes]
+      summary: Delete a recurring income template
+      description: |
+        Note: Permanently deletes the template **and all of its historical income
+        entries**, which changes all-time savings calculations. To preserve
+        history, use `PATCH { "active": false }` instead.
+      security:
+        - sessionAuth: []
+      responses:
+        '204':
+          description: Income and its entries deleted successfully (no content)
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  # ------------------------------------------------------------------------
+
+  # Dashboard Route
+  /api/dashboard:
+    get:
+      tags: [Dashboard]
+      summary: Get aggregated dashboard data
+      description: |
+        Returns monthly analytics: summary metrics, spending breakdown by
+        category, and recent activity. Defaults to the current month.
+
+        **Side effect:** before aggregating, the server posts any due
+        recurring income entries for the requested period. This operation is
+        idempotent — entries are posted exactly once per period.
+      security:
+        - sessionAuth: []
+      parameters:
+        - name: month
+          in: query
+          required: false
+          description: Target month (YYYY-MM). Defaults to the current month.
+          schema:
+            type: string
+            pattern: '^\d{4}-(0[1-9]|1[0-2])$'
+            example: '2025-06'
+      responses:
+        '200':
+          description: Dashboard data retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DashboardResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
 components:
   securitySchemes:
     sessionAuth:
       type: apiKey
       in: cookie
       name: session_token
-      description: Session cookie obtained from login or registration
+      description: HTTP-only session cookie obtained from login or registration
 
   schemas:
     User:
@@ -236,7 +700,7 @@ components:
         email:
           type: string
           format: email
-          description: User's email address
+          description: User's email address (stored lowercase)
           example: john@example.com
       required:
         - id
@@ -249,18 +713,21 @@ components:
         name:
           type: string
           minLength: 2
-          maxLength: 50
+          maxLength: 100
           description: User's full name
           example: John Doe
         email:
           type: string
           format: email
-          description: User's email address (must be unique)
+          description: User's email address (must be unique; normalized to lowercase)
           example: john@example.com
         password:
           type: string
-          minLength: 6
-          description: User's password (will be hashed)
+          minLength: 8
+          maxLength: 72
+          description: |
+            User's password (hashed with bcrypt). Max 72 bytes because bcrypt
+            silently truncates longer input.
           example: password123
       required:
         - name
@@ -273,7 +740,7 @@ components:
         email:
           type: string
           format: email
-          description: User's email address
+          description: User's email address (case-insensitive)
           example: john@example.com
         password:
           type: string
@@ -293,7 +760,7 @@ components:
           $ref: '#/components/schemas/User'
         message:
           type: string
-          example: User registered successfully
+          example: Logged in successfully
 
     UserResponse:
       type: object
@@ -316,43 +783,389 @@ components:
 
     ErrorResponse:
       type: object
+      description: |
+        Error envelope. Auth endpoints wrap errors with `success: false`;
+        resource endpoints (expenses, incomes, categories, dashboard) return
+        only `error`, plus `details` on validation failures.
       properties:
         success:
           type: boolean
           example: false
         error:
           type: string
-          example: Error message
+          example: Internal Server Error
         details:
           type: array
+          description: Present on validation failures (Zod issue objects)
           items:
-            type: object
-            properties:
-              field:
-                type: string
-              message:
-                type: string
+            $ref: '#/components/schemas/ZodIssue'
+      required:
+        - error
 
-    ValidationError:
+    ZodIssue:
+      type: object
+      description: Validation issue produced by Zod
+      properties:
+        code:
+          type: string
+          example: invalid_format
+        message:
+          type: string
+          example: Invalid email address
+        path:
+          type: array
+          items:
+            type: string
+          example:
+            - email
+
+    Pagination:
       type: object
       properties:
-        success:
-          type: boolean
-          example: false
-        error:
+        page:
+          type: integer
+          example: 1
+        pageSize:
+          type: integer
+          example: 20
+        total:
+          type: integer
+          description: Total number of matching records
+          example: 42
+        totalPages:
+          type: integer
+          example: 3
+
+    Category:
+      type: object
+      properties:
+        id:
           type: string
-          example: Validation failed
-        details:
+          description: MongoDB ObjectId
+          example: 507f1f77bcf86cd799439013
+        name:
+          type: string
+          description: Category name (unique per user)
+          example: groceries
+        userId:
+          type: string
+          description: Owning user's ObjectId
+          example: 507f1f77bcf86cd799439011
+      required:
+        - id
+        - name
+        - userId
+
+    CategoryCreateRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          description: Category name (unique per user)
+          example: hobbies
+      required:
+        - name
+
+    CategoryListResponse:
+      type: object
+      properties:
+        data:
           type: array
           items:
-            type: object
-            properties:
-              field:
-                type: string
-                example: email
-              message:
-                type: string
-                example: Invalid email format
+            $ref: '#/components/schemas/Category'
+
+    Expense:
+      type: object
+      properties:
+        id:
+          type: string
+          description: MongoDB ObjectId
+          example: 507f1f77bcf86cd799439021
+        date:
+          type: string
+          format: date-time
+          description: When the expense occurred
+          example: '2025-06-10T00:00:00.000Z'
+        name:
+          type: string
+          example: Weekly groceries
+        amount:
+          type: integer
+          description: Amount in cents
+          example: 4999
+        categoryId:
+          type: string
+          nullable: true
+          description: Category ObjectId, or null if uncategorized
+          example: 507f1f77bcf86cd799439013
+        category:
+          type: object
+          nullable: true
+          description: The expense's category, or null if uncategorized
+          properties:
+            id:
+              type: string
+              example: 507f1f77bcf86cd799439013
+            name:
+              type: string
+              example: groceries
+        userId:
+          type: string
+          description: Owning user's ObjectId
+          example: 507f1f77bcf86cd799439011
+      required:
+        - id
+        - date
+        - name
+        - amount
+        - userId
+
+    ExpenseCreateRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+          example: Weekly groceries
+        amount:
+          type: integer
+          minimum: 1
+          description: Amount in cents
+          example: 4999
+        date:
+          type: string
+          description: 'YYYY-MM-DD or full ISO 8601 datetime'
+          example: '2025-06-10'
+        categoryId:
+          type: string
+          description: Optional. Must reference a category owned by the requesting user.
+          example: 507f1f77bcf86cd799439013
+      required:
+        - name
+        - amount
+        - date
+
+    ExpenseUpdateRequest:
+      type: object
+      description: All fields optional; only provided fields are updated.
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        amount:
+          type: integer
+          minimum: 1
+          description: Amount in cents
+        date:
+          type: string
+          description: 'YYYY-MM-DD or full ISO 8601 datetime'
+        categoryId:
+          type: string
+          nullable: true
+          description: 'Category ObjectId, or null to remove the category'
+
+    ExpenseListResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Expense'
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+
+    Income:
+      type: object
+      properties:
+        id:
+          type: string
+          description: MongoDB ObjectId
+          example: 507f1f77bcf86cd799439031
+        name:
+          type: string
+          nullable: true
+          description: Optional label, e.g. "Salary"
+          example: Salary
+        amount:
+          type: integer
+          description: Amount posted per period, in cents
+          example: 500000
+        dayOfMonth:
+          type: integer
+          minimum: 1
+          maximum: 31
+          description: Day of month the income posts (capped to the month's last day)
+          example: 1
+        createdAt:
+          type: string
+          format: date-time
+        active:
+          type: boolean
+          description: Whether the template still generates postings
+          example: true
+        lastPostedPeriod:
+          type: string
+          nullable: true
+          description: Last posted period (YYYY-MM)
+          example: '2025-06'
+        userId:
+          type: string
+          description: Owning user's ObjectId
+          example: 507f1f77bcf86cd799439011
+      required:
+        - id
+        - amount
+        - dayOfMonth
+        - active
+        - userId
+
+    IncomeCreateRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          nullable: true
+          maxLength: 100
+          description: Optional label
+          example: Salary
+        amount:
+          type: integer
+          minimum: 1
+          description: Amount posted per period, in cents
+          example: 500000
+        dayOfMonth:
+          type: integer
+          minimum: 1
+          maximum: 31
+          example: 1
+      required:
+        - amount
+        - dayOfMonth
+
+    IncomeUpdateRequest:
+      type: object
+      description: |
+        All fields optional; only provided fields are updated. Changes affect
+        future postings only — historical entries are never rewritten.
+      properties:
+        name:
+          type: string
+          nullable: true
+          maxLength: 100
+          description: 'Label, or null to clear it'
+        amount:
+          type: integer
+          minimum: 1
+          description: Amount posted per period, in cents
+        dayOfMonth:
+          type: integer
+          minimum: 1
+          maximum: 31
+        active:
+          type: boolean
+          description: Set false to stop future postings (soft delete)
+
+    IncomeListResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Income'
+
+    DashboardSummary:
+      type: object
+      properties:
+        totalSavings:
+          type: integer
+          description: All-time income minus all-time expenses, in cents
+          example: 82500
+        monthIncome:
+          type: integer
+          description: Income posted in the requested month, in cents
+          example: 100000
+        monthExpenses:
+          type: integer
+          description: Expenses in the requested month, in cents
+          example: 7500
+        netThisMonth:
+          type: integer
+          description: monthIncome minus monthExpenses, in cents
+          example: 92500
+
+    SpendingByCategory:
+      type: object
+      properties:
+        categoryId:
+          type: string
+          description: Category ObjectId, or the literal string "uncategorized"
+          example: 507f1f77bcf86cd799439013
+        name:
+          type: string
+          example: food
+        amount:
+          type: integer
+          description: Total spent in this category this month, in cents
+          example: 5000
+        percentage:
+          type: number
+          description: Share of the month's total expenses (0–100)
+          example: 66.67
+        transactionCount:
+          type: integer
+          description: Number of transactions in this category this month
+          example: 1
+
+    RecentActivity:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Expense or IncomeEntry ObjectId
+        type:
+          type: string
+          enum:
+            - expense
+            - income
+        name:
+          type: string
+          description: Expense name, or "Income Entry"
+          example: Weekly groceries
+        amount:
+          type: integer
+          description: Amount in cents
+          example: 4999
+        categoryName:
+          type: string
+          nullable: true
+          description: Category name for expenses; null for income
+          example: groceries
+        date:
+          type: string
+          format: date-time
+
+    DashboardResponse:
+      type: object
+      properties:
+        period:
+          type: string
+          description: Requested month (YYYY-MM)
+          example: '2025-06'
+        summary:
+          $ref: '#/components/schemas/DashboardSummary'
+        spendingByCategory:
+          type: array
+          description: Month's expenses grouped by category, sorted by amount (descending)
+          items:
+            $ref: '#/components/schemas/SpendingByCategory'
+        recentActivity:
+          type: array
+          description: 5 most recent expenses and income postings, newest first
+          items:
+            $ref: '#/components/schemas/RecentActivity'
 
   responses:
     Unauthorized:
@@ -361,22 +1174,60 @@ components:
         application/json:
           schema:
             $ref: '#/components/schemas/ErrorResponse'
-          example:
-            success: false
-            error: Not authenticated
+          examples:
+            authStyle:
+              summary: Auth endpoints (/api/me, /api/auth/*)
+              value:
+                success: false
+                error: Not authenticated
+            crudStyle:
+              summary: Resource endpoints (expenses, incomes, categories, dashboard)
+              value:
+                error: Unauthorized
 
-    ValidationError:
-      description: Invalid request data
+    BadRequest:
+      description: |
+        Validation failed (with `details`), a referenced resource is invalid
+        (e.g. a categoryId owned by another user), or a query/path parameter
+        is malformed.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            validation:
+              summary: Validation failure with details
+              value:
+                error: Validation failed
+                details:
+                  - code: invalid_format
+                    message: Invalid email address
+                    path:
+                      - email
+            invalidReference:
+              summary: Referenced resource not owned by the user
+              value:
+                error: Category not found
+
+    NotFound:
+      description: |
+        Resource not found — or it exists but belongs to another user.
+        The API does not distinguish between the two cases.
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/ErrorResponse'
           example:
-            success: false
-            error: Validation failed
-            details:
-              - field: email
-                message: Invalid email format
+            error: Expense not found
+
+    Conflict:
+      description: Resource already exists (duplicate email or category name)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error: Category name already exists
 
     InternalServerError:
       description: Internal server error
@@ -385,5 +1236,4 @@ components:
           schema:
             $ref: '#/components/schemas/ErrorResponse'
           example:
-            success: false
-            error: Internal server error
+            error: Internal Server Error
