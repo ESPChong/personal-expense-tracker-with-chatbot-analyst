@@ -1,11 +1,10 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { registerSchema } from '@/lib/validations';
+import { generateSessionToken, hashSessionToken } from '@/lib/session';
 import bcrypt from 'bcryptjs';
 import { cookies } from 'next/headers';
-import { randomUUID } from 'crypto';
 
-// Default categories applied to new accounts
 const DEFAULT_CATEGORIES = [
   'groceries',
   'utilities',
@@ -20,82 +19,41 @@ const DEFAULT_CATEGORIES = [
 
 export async function POST(request: Request) {
   try {
-    const body = await request.json();
-
-    const result = registerSchema.safeParse(body);
+    const result = registerSchema.safeParse(await request.json());
     if (!result.success) {
       return NextResponse.json(
-        {
-          success: false,
-          error: 'Validation failed',
-          details: result.error.issues,
-        },
+        { success: false, error: 'Validation failed', details: result.error.issues },
         { status: 400 },
       );
     }
-
     const { name, email, password } = result.data;
 
-    // Check if user exists
-    const existingUser = await prisma.user.findUnique({
-      where: { email },
-    });
-
+    const existingUser = await prisma.user.findUnique({ where: { email } });
     if (existingUser) {
       return NextResponse.json(
-        {
-          success: false,
-          error: 'User with this email already exists',
-        },
+        { success: false, error: 'User with this email already exists' },
         { status: 409 },
       );
     }
 
-    const saltRounds = 12;
-    const hashedPassword = await bcrypt.hash(password, saltRounds);
+    const hashedPassword = await bcrypt.hash(password, 12);
 
-    // Transaction: Create user and default categories simultaneously
     const user = await prisma.$transaction(async (tx) => {
-      // Create the user
       const newUser = await tx.user.create({
-        data: {
-          name,
-          email,
-          password: hashedPassword,
-        },
-        select: {
-          id: true,
-          name: true,
-          email: true,
-        },
+        data: { name, email, password: hashedPassword },
+        select: { id: true, name: true, email: true },
       });
-
-      // Prepare default category records
-      const categoryData = DEFAULT_CATEGORIES.map((catName) => ({
-        name: catName,
-        userId: newUser.id,
-      }));
-
-      // Insert default categories
       await tx.category.createMany({
-        data: categoryData,
+        data: DEFAULT_CATEGORIES.map((catName) => ({ name: catName, userId: newUser.id })),
       });
-
       return newUser;
     });
 
-    // Create session
-    const sessionToken = randomUUID();
-    const expiresAt = new Date();
-    expiresAt.setDate(expiresAt.getDate() + 7);
+    const sessionToken = generateSessionToken();
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
 
-    // Store session in db
     await prisma.session.create({
-      data: {
-        sessionToken,
-        userId: user.id,
-        expiresAt,
-      },
+      data: { sessionToken: hashSessionToken(sessionToken), userId: user.id, expiresAt },
     });
 
     const cookieStore = await cookies();
@@ -106,40 +64,23 @@ export async function POST(request: Request) {
       expires: expiresAt,
       path: '/',
     });
-
-    // Store user info in a separate cookie for client access
-    cookieStore.set(
-      'user_data',
-      JSON.stringify({
-        id: user.id,
-        name: user.name,
-        email: user.email,
-      }),
-      {
-        httpOnly: false,
-        secure: process.env.NODE_ENV === 'production',
-        sameSite: 'lax',
-        expires: expiresAt,
-        path: '/',
-      },
-    );
+    // NOTE: the non-httpOnly `user_data` cookie was removed on purpose.
+    // The client should get user info from GET /api/me — it can't go stale
+    // and can't be tampered with.
 
     return NextResponse.json(
-      {
-        success: true,
-        user,
-        message: 'User registered successfully',
-      },
+      { success: true, user, message: 'User registered successfully' },
       { status: 201 },
     );
   } catch (error) {
+    // Concurrent registration race → unique constraint on email
+    if ((error as { code?: string }).code === 'P2002') {
+      return NextResponse.json(
+        { success: false, error: 'User with this email already exists' },
+        { status: 409 },
+      );
+    }
     console.error('Registration error:', error);
-    return NextResponse.json(
-      {
-        success: false,
-        error: 'Internal server error',
-      },
-      { status: 500 },
-    );
+    return NextResponse.json({ success: false, error: 'Internal server error' }, { status: 500 });
   }
 }

@@ -1,73 +1,51 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { loginSchema } from '@/lib/validations';
+import { generateSessionToken, hashSessionToken } from '@/lib/session';
 import bcrypt from 'bcryptjs';
 import { cookies } from 'next/headers';
-import { randomUUID } from 'crypto';
+
+// Lazily computed hash used to equalize response times when the email is unknown,
+// preventing user enumeration via timing.
+let dummyHashPromise: Promise<string> | null = null;
+function getDummyHash() {
+  dummyHashPromise ??= bcrypt.hash('timing-equalization-dummy', 12);
+  return dummyHashPromise;
+}
 
 export async function POST(request: Request) {
   try {
-    const body = await request.json();
-
-    const result = loginSchema.safeParse(body);
+    const result = loginSchema.safeParse(await request.json());
     if (!result.success) {
       return NextResponse.json(
-        {
-          success: false,
-          error: 'Validation failed',
-          details: result.error.issues,
-        },
+        { success: false, error: 'Validation failed', details: result.error.issues },
         { status: 400 },
       );
     }
-
     const { email, password } = result.data;
 
-    // Find user
     const user = await prisma.user.findUnique({
       where: { email },
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        password: true,
-      },
+      select: { id: true, name: true, email: true, password: true },
     });
 
-    if (!user) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: 'Invalid credentials',
-        },
-        { status: 401 },
-      );
+    // Always run a bcrypt comparison, even for unknown emails
+    const passwordHash = user?.password ?? (await getDummyHash());
+    const isPasswordValid = await bcrypt.compare(password, passwordHash);
+    if (!user || !isPasswordValid) {
+      return NextResponse.json({ success: false, error: 'Invalid credentials' }, { status: 401 });
     }
 
-    // Verify password
-    const isPasswordValid = await bcrypt.compare(password, user.password);
-    if (!isPasswordValid) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: 'Invalid credentials',
-        },
-        { status: 401 },
-      );
-    }
+    // Housekeeping: purge this user's already-expired sessions
+    await prisma.session.deleteMany({
+      where: { userId: user.id, expiresAt: { lt: new Date() } },
+    });
 
-    // Create session
-    const sessionToken = randomUUID();
-    const expiresAt = new Date();
-    expiresAt.setDate(expiresAt.getDate() + 7); // 7 days from now
+    const sessionToken = generateSessionToken();
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
 
-    // Store session in database
     await prisma.session.create({
-      data: {
-        sessionToken,
-        userId: user.id,
-        expiresAt,
-      },
+      data: { sessionToken: hashSessionToken(sessionToken), userId: user.id, expiresAt },
     });
 
     const cookieStore = await cookies();
@@ -79,24 +57,13 @@ export async function POST(request: Request) {
       path: '/',
     });
 
-    // Return user data without password
     return NextResponse.json({
       success: true,
-      user: {
-        id: user.id,
-        name: user.name,
-        email: user.email,
-      },
+      user: { id: user.id, name: user.name, email: user.email },
       message: 'Logged in successfully',
     });
   } catch (error) {
     console.error('Login error:', error);
-    return NextResponse.json(
-      {
-        success: false,
-        error: 'Internal server error',
-      },
-      { status: 500 },
-    );
+    return NextResponse.json({ success: false, error: 'Internal server error' }, { status: 500 });
   }
 }
