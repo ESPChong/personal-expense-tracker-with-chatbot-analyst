@@ -1,4 +1,3 @@
-// vitest.config.ts
 import path from 'node:path';
 import { defineConfig } from 'vitest/config';
 
@@ -9,6 +8,7 @@ export default defineConfig({
     globalSetup: './src/tests/global-setup.ts',
     setupFiles: ['./src/tests/setup.ts'],
     env: { TZ: 'UTC' },
+    fileParallelism: false,
   },
   resolve: {
     alias: {
