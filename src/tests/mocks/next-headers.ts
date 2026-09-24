@@ -3,7 +3,8 @@
 
 export const cookieStore = new Map<string, string>();
 
-type SetArgs = [string, string] | [{ name: string; value: string }];
+type SetArgs =
+  [string, string] | [string, string, Record<string, unknown>?] | [{ name: string; value: string }];
 
 export async function cookies() {
   return {
@@ -15,8 +16,15 @@ export async function cookies() {
       return [...cookieStore.entries()].map(([name, value]) => ({ name, value }));
     },
     set(...args: SetArgs) {
-      const [name, value] =
-        typeof args[0] === 'string' ? [args[0], args[1]] : [args[0].name, args[0].value];
+      let name: string;
+      let value: string;
+      if (typeof args[0] === 'string') {
+        name = args[0];
+        value = args[1]!; // string-form callers always supply the value at position 1
+      } else {
+        name = args[0].name;
+        value = args[0].value;
+      }
       cookieStore.set(name, value);
       return { name, value };
     },

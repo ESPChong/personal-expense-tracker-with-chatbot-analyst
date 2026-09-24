@@ -14,12 +14,8 @@ const eslintConfig = defineConfig([
     'next-env.d.ts',
   ]),
   {
+    files: ['**/*.{ts,tsx}'],
     rules: {
-      // Allow intentionally-unused identifiers prefixed with _ (e.g. route
-      // handler params like `_request`). Applied to both the base rule and
-      // the typescript-eslint equivalent, so it holds regardless of which
-      // one fires on .ts files.
-      'no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
       '@typescript-eslint/no-unused-vars': [
         'error',
         {

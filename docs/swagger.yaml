@@ -99,6 +99,25 @@ paths:
         '500':
           $ref: '#/components/responses/InternalServerError'
 
+    /logout:
+      get:
+        tags: [Client]
+        summary: Get logout confirmation page
+        description: Returns the logout confirmation page for authenticated users.
+        security:
+          - sessionAuth: []
+        responses:
+          '200':
+            description: Logout confirmation page rendered successfully.
+            content:
+              text/html:
+                schema:
+                  type: string
+          '401':
+            $ref: '#/components/responses/Unauthorized'
+          '500':
+            $ref: '#/components/responses/InternalServerError'
+
   /expenses:
     get:
       tags: [Client]
