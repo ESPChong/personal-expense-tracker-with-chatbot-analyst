@@ -1,39 +1,47 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { getCurrentUser } from '@/lib/auth';
+import { incomeCreateSchema } from '@/lib/validations';
 
+function unauthorized() {
+  return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+}
+
+// GET /api/incomes — list recurring income templates
+export async function GET() {
+  try {
+    const user = await getCurrentUser();
+    if (!user) return unauthorized();
+
+    const incomes = await prisma.income.findMany({
+      where: { userId: user.id },
+      orderBy: [{ active: 'desc' }, { createdAt: 'desc' }],
+    });
+    return NextResponse.json({ data: incomes });
+  } catch (error) {
+    console.error('List Incomes Error:', error);
+    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+  }
+}
+
+// POST /api/incomes — create a recurring income template
 export async function POST(request: NextRequest) {
   try {
     const user = await getCurrentUser();
-    if (!user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+    if (!user) return unauthorized();
 
-    const body = await request.json();
-    const { name, amount, dayOfMonth } = body;
-
-    if (!amount || !dayOfMonth) {
-      return NextResponse.json({ error: 'Amount and dayOfMonth are required' }, { status: 400 });
+    const result = incomeCreateSchema.safeParse(await request.json());
+    if (!result.success) {
+      return NextResponse.json(
+        { error: 'Validation failed', details: result.error.issues },
+        { status: 400 },
+      );
     }
-
-    if (typeof amount !== 'number' || !Number.isInteger(amount)) {
-      return NextResponse.json({ error: 'Amount must be an integer (cents)' }, { status: 400 });
-    }
-
-    if (typeof dayOfMonth !== 'number' || dayOfMonth < 1 || dayOfMonth > 31) {
-      return NextResponse.json({ error: 'dayOfMonth must be between 1 and 31' }, { status: 400 });
-    }
+    const { name, amount, dayOfMonth } = result.data;
 
     const income = await prisma.income.create({
-      data: {
-        name: name || null,
-        amount,
-        dayOfMonth,
-        active: true,
-        userId: user.id,
-      },
+      data: { name: name ?? null, amount, dayOfMonth, active: true, userId: user.id },
     });
-
     return NextResponse.json(income, { status: 201 });
   } catch (error) {
     console.error('Create Income Error:', error);
