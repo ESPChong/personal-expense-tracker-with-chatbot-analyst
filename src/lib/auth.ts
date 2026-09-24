@@ -1,48 +1,44 @@
 import { cookies } from 'next/headers';
 import { prisma } from './prisma';
+import { hashSessionToken } from './session';
 
-export async function getCurrentUser() {
+export type AuthUser = { id: string; name: string; email: string };
+
+export async function getCurrentUser(): Promise<AuthUser | null> {
   const cookieStore = await cookies();
-  const sessionToken = cookieStore.get('session_token')?.value;
-
-  if (!sessionToken) {
-    return null;
-  }
+  const token = cookieStore.get('session_token')?.value;
+  if (!token) return null;
 
   const session = await prisma.session.findUnique({
-    where: { sessionToken },
+    where: { sessionToken: hashSessionToken(token) },
     include: {
-      user: {
-        select: {
-          id: true,
-          name: true,
-          email: true,
-        },
-      },
+      user: { select: { id: true, name: true, email: true } },
     },
   });
 
-  if (!session) {
-    return null;
-  }
+  if (!session) return null;
 
-  // Check if session is expired
   if (session.expiresAt < new Date()) {
-    await prisma.session.delete({
-      where: { id: session.id },
-    });
+    await prisma.session.delete({ where: { id: session.id } }).catch(() => {});
     return null;
   }
 
   return session.user;
 }
 
-export async function requireAuth() {
-  const user = await getCurrentUser();
-
-  if (!user) {
-    throw new Error('Authentication required');
+// Usable error type: routes can catch this and map it to a proper status code
+export class ApiError extends Error {
+  constructor(
+    public status: number,
+    message: string,
+  ) {
+    super(message);
+    this.name = 'ApiError';
   }
+}
 
+export async function requireAuth(): Promise<AuthUser> {
+  const user = await getCurrentUser();
+  if (!user) throw new ApiError(401, 'Authentication required');
   return user;
 }
