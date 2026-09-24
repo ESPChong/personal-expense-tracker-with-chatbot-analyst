@@ -29,7 +29,7 @@ export async function getCurrentUser(): Promise<AuthUser | null> {
 // Usable error type: routes can catch this and map it to a proper status code
 export class ApiError extends Error {
   constructor(
-    public status: number,
+    public _status: number,
     message: string,
   ) {
     super(message);

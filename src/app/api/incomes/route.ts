@@ -8,7 +8,7 @@ function unauthorized() {
 }
 
 // GET /api/incomes — list recurring income templates
-export async function GET() {
+export async function GET(_request: Request) {
   try {
     const user = await getCurrentUser();
     if (!user) return unauthorized();

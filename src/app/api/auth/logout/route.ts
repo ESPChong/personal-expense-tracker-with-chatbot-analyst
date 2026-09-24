@@ -3,7 +3,7 @@ import { prisma } from '@/lib/prisma';
 import { hashSessionToken } from '@/lib/session';
 import { cookies } from 'next/headers';
 
-export async function POST() {
+export async function POST(_request: Request) {
   try {
     const cookieStore = await cookies();
     const token = cookieStore.get('session_token')?.value;
