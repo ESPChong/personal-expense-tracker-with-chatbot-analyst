@@ -8,6 +8,8 @@ import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
+import { useSearchParams } from 'next/navigation';
+import { isValidMonthString } from '@/lib/format';
 
 interface Message {
   role: 'user' | 'assistant';
@@ -39,6 +41,8 @@ export function ChatbotDrawer() {
     if (el) el.scrollTop = el.scrollHeight;
   }, [messages, isPending]);
 
+  const searchParams = useSearchParams();
+
   // The offline summary comes back with this prefix until an LLM is wired
   const isOffline = messages.some(
     (m) => m.role === 'assistant' && m.content.startsWith(OFFLINE_PREFIX),
@@ -53,10 +57,12 @@ export function ChatbotDrawer() {
     setIsPending(true);
 
     try {
+      const monthParam = searchParams.get('month');
+      const month = isValidMonthString(monthParam) ? monthParam : undefined;
+
       const res = await api<{ reply: string }>('/api/chatbot', {
         method: 'POST',
-        // Server contract: last 10 prior turns — current message travels separately
-        body: { message, history: messages.slice(-10) },
+        body: { message, history: messages.slice(-10), ...(month && { month }) },
       });
       setMessages((prev) => [...prev, { role: 'assistant', content: res.reply }]);
     } catch (error) {
@@ -88,7 +94,7 @@ export function ChatbotDrawer() {
         <SheetHeader className="border-b">
           <SheetTitle className="flex items-center gap-2 text-base">
             <Sparkles className="text-primary h-4 w-4" />
-            Analyst
+            AI Chatbot Analyst
             {isOffline && (
               <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-xs font-medium text-amber-600 dark:text-amber-400">
                 offline mode

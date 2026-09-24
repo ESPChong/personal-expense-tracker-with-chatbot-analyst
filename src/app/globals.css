@@ -67,10 +67,10 @@
   --input: #e4e4e7;
   --ring: #6366f1;
   --chart-1: #6366f1; /* indigo */
-  --chart-2: #10b981; /* emerald — income */
-  --chart-3: #f43f5e; /* rose — expenses */
-  --chart-4: #f59e0b; /* amber */
-  --chart-5: #8b5cf6; /* violet */
+  --chart-2: #0ea5e9; /* sky */
+  --chart-3: #f59e0b; /* amber */
+  --chart-4: #8b5cf6; /* violet */
+  --chart-5: #14b8a6; /* teal */
 }
 
 .dark {
@@ -94,10 +94,10 @@
   --input: #27272a;
   --ring: #818cf8;
   --chart-1: #818cf8;
-  --chart-2: #34d399;
-  --chart-3: #fb7185;
-  --chart-4: #fbbf24;
-  --chart-5: #a78bfa;
+  --chart-2: #38bdf8;
+  --chart-3: #fbbf24;
+  --chart-4: #a78bfa;
+  --chart-5: #2dd4bf;
 }
 
 @layer base {
